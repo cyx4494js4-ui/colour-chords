@@ -849,7 +849,7 @@ const NavMenu = ({ isOpen, onClose, onNavClick, activeTab, isDarkMode }) => {
     return (
         <>
             <div 
-                className={`fixed inset-0 bg-black z-40 transition-opacity duration-300 ${isOpen ? 'bg-opacity-50' : 'bg-opacity-0 pointer-events-none'}`} 
+                className={`fixed inset-0 z-40 transition-opacity duration-300 ${isOpen ? 'bg-black/50' : 'bg-black/0 pointer-events-none'}`}
                 onClick={onClose}
             />
             <div className={`fixed top-0 left-0 h-full w-64 z-50 transform transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : '-translate-x-full'} ${isDarkMode ? 'bg-gray-800 text-gray-100' : 'bg-white text-gray-800'} shadow-2xl`}>
@@ -1551,7 +1551,7 @@ const SolfegeWordDisplay = React.forwardRef(({ solfegeData, currentDoColorIndex,
 });
 
 const SettingsMenu = ({ isDarkMode, setIsDarkMode, playSpacesAsRests, setPlaySpacesAsRests, playNotesOnKeyClick, setPlayNotesOnKeyClick, maintainAbsolutePitch, setMaintainAbsolutePitch, onClose }) => (
-  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
     <div className={`relative w-full max-w-md p-6 rounded-xl shadow-2xl transition-colors duration-300 ${isDarkMode ? 'bg-gray-800 text-gray-100' : 'bg-white text-gray-800'}`}>
       <h2 className="text-2xl font-bold mb-6 text-center">Settings</h2>
       <div className="flex items-center justify-between mb-4">
@@ -1592,7 +1592,7 @@ const ExportModal = ({ isOpen, onClose, onExport, isDarkMode }) => {
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className={`relative w-full max-w-sm p-6 rounded-xl shadow-2xl transition-colors duration-300 ${isDarkMode ? 'bg-gray-800 text-gray-100' : 'bg-white text-gray-800'}`}>
         <h2 className="text-xl font-bold mb-4 text-center">Export Composition</h2>
         <label htmlFor="fileNameInput" className={`block text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
