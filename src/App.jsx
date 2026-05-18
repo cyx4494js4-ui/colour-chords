@@ -264,9 +264,9 @@ const AppHeader = ({ onMenuClick, isDarkMode, currentDoColorIndex, isShrunk }) =
                 <MenuIcon className="h-6 w-6" />
             </button>
 
-            <div className="relative z-10 flex-1 overflow-hidden">
+            <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
                 <h1
-                    className={`text-3xl font-extrabold ml-4 whitespace-nowrap transition-all duration-300 ease-in-out
+                    className={`text-3xl font-extrabold whitespace-nowrap transition-all duration-300 ease-in-out
                         ${isShrunk ? 'opacity-0 -translate-x-4' : 'opacity-100 translate-x-0'}`}
                 >
                     {titleString.split('').map((char, index) => {
