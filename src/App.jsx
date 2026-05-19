@@ -272,9 +272,9 @@ const AppHeader = ({ onMenuClick, isDarkMode, currentDoColorIndex, isShrunk }) =
                     {titleString.split('').map((char, index) => {
                         if (char === ' ') return <span key={index} className="px-1">{char}</span>;
                         const colorIndex = (currentDoColorIndex + coloredCharIndex) % colorSpectrum.length;
-                        const textColorClass = colorSpectrum[colorIndex].textClass;
+                        const hex = colorSpectrum[colorIndex].hex;
                         coloredCharIndex++;
-                        return <span key={index} className={`${textColorClass}`}>{char}</span>;
+                        return <span key={index} style={{ color: hex, transition: 'color 0.5s ease' }}>{char}</span>;
                     })}
                 </h1>
             </div>
@@ -282,6 +282,38 @@ const AppHeader = ({ onMenuClick, isDarkMode, currentDoColorIndex, isShrunk }) =
     );
 };
 
+
+// --- Jam Palette ---
+const JamPalette = ({ circles, hasPlayed, isDarkMode }) => (
+    <div
+        className="w-full rounded-2xl relative overflow-hidden flex items-center justify-center"
+        style={{ backgroundColor: FADE_TO_GRAY_COLOR, minHeight: '18rem' }}
+    >
+        {!hasPlayed && (
+            <div className="text-center pointer-events-none select-none">
+                <h2 className="text-2xl font-bold text-white/70">Jam Session</h2>
+                <p className="text-white/50">Play notes and chords live!</p>
+            </div>
+        )}
+        {circles.map(circle => (
+            <div
+                key={circle.id}
+                className="absolute rounded-full pointer-events-none"
+                style={{
+                    left: `${circle.x}%`,
+                    top: `${circle.y}%`,
+                    width: '72px',
+                    height: '72px',
+                    transform: 'translate(-50%, -50%)',
+                    backgroundColor: circle.hex,
+                    boxShadow: `0 0 28px 8px ${circle.hex}99`,
+                    opacity: circle.fading ? 0 : 0.92 * circle.volume,
+                    transition: `opacity ${circle.fadeMs / 1000}s ease-out`,
+                }}
+            />
+        ))}
+    </div>
+);
 
 // --- Main App Component ---
 const App = () => {
@@ -293,6 +325,10 @@ const App = () => {
   const [release, setRelease] = useState(DEFAULT_RELEASE);
   const [currentDoColorIndex, setCurrentDoColorIndex] = useState(0);
   
+  const [bpm, setBpm] = useState(120);
+  const [jamCircles, setJamCircles] = useState([]);
+  const [jamHasPlayed, setJamHasPlayed] = useState(false);
+
   // UI/App State
   const [isPlaying, setIsPlaying] = useState(false);
   const [playSpacesAsRests, setPlaySpacesAsRests] = useState(false);
@@ -308,11 +344,19 @@ const App = () => {
 
   // Refs
   const polySynthRef = useRef(null);
+  const historyRef = useRef(['']);
+  const historyIndexRef = useRef(0);
+  const skipHistoryRef = useRef(false);
+  const prevSolfegeRef = useRef('');
   const prevDoIndexRef = useRef(currentDoColorIndex);
   const playNotesOnKeyClickRef = useRef(playNotesOnKeyClick);
   const fileInputRef = useRef(null);
   const displayRef = useRef(null);
   const isPlayingSequenceRef = useRef(false);
+  const activeTabRef = useRef(activeTab);
+  const currentDoColorIndexRef = useRef(currentDoColorIndex);
+  useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
+  useEffect(() => { currentDoColorIndexRef.current = currentDoColorIndex; }, [currentDoColorIndex]);
   
   // Initialize Tone.js
   useEffect(() => {
@@ -430,6 +474,48 @@ const App = () => {
     prevDoIndexRef.current = currentDoColorIndex;
   }, [currentDoColorIndex, maintainAbsolutePitch, solfegeInput]);
 
+  // History tracking
+  useEffect(() => {
+    if (skipHistoryRef.current) {
+      skipHistoryRef.current = false;
+      prevSolfegeRef.current = solfegeInput;
+      return;
+    }
+    if (solfegeInput !== prevSolfegeRef.current) {
+      prevSolfegeRef.current = solfegeInput;
+      historyRef.current = [...historyRef.current.slice(0, historyIndexRef.current + 1), solfegeInput];
+      historyIndexRef.current = historyRef.current.length - 1;
+    }
+  }, [solfegeInput]);
+
+  const handleUndo = useCallback(() => {
+    if (historyIndexRef.current > 0) {
+      skipHistoryRef.current = true;
+      historyIndexRef.current--;
+      setSolfegeInput(historyRef.current[historyIndexRef.current]);
+    }
+  }, []);
+
+  const handleRedo = useCallback(() => {
+    if (historyIndexRef.current < historyRef.current.length - 1) {
+      skipHistoryRef.current = true;
+      historyIndexRef.current++;
+      setSolfegeInput(historyRef.current[historyIndexRef.current]);
+    }
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) handleRedo();
+        else handleUndo();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [handleUndo, handleRedo]);
+
   // --- Event Handlers ---
 
   const handleNavClick = (tabName) => {
@@ -442,11 +528,30 @@ const App = () => {
   const handleNoteOn = useCallback(async (syllable) => {
     if (!polySynthRef.current) return;
     await startAudio();
-    
+
     const noteData = getNoteData(syllable);
     if (noteData) {
         polySynthRef.current.set({ envelope: { attack, release } });
         polySynthRef.current.triggerAttack(noteData.note, undefined, noteData.volume * volume);
+    }
+
+    if (activeTabRef.current === 'jam') {
+        const { baseSyllable } = parseSyllable(syllable);
+        const step = chromaticSolfegeMap[baseSyllable];
+        if (step !== undefined) {
+            const colorIndex = (currentDoColorIndexRef.current + step + 12) % 12;
+            const hex = colorSpectrum[colorIndex].hex;
+            const id = Date.now() + Math.random();
+            const x = 8 + Math.random() * 84;
+            const y = 8 + Math.random() * 84;
+            const fadeMs = Math.max(800, release * 2000 + 600);
+            setJamHasPlayed(true);
+            setJamCircles(prev => [...prev, { id, x, y, hex, volume, fading: false, fadeMs }]);
+            setTimeout(() => {
+                setJamCircles(prev => prev.map(c => c.id === id ? { ...c, fading: true } : c));
+                setTimeout(() => setJamCircles(prev => prev.filter(c => c.id !== id)), fadeMs);
+            }, 30);
+        }
     }
   }, [getNoteData, attack, release, volume, startAudio]);
 
@@ -737,12 +842,10 @@ const App = () => {
                           polySynth={polySynthRef.current}
                           startAudio={startAudio}
                           stopAllAudio={stopAllAudio}
+                          bpm={bpm}
                       />
                     ) : (
-                      <div className="min-h-[18rem] flex flex-col justify-center items-center">
-                        <h2 className={`text-2xl font-bold ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Jam Session</h2>
-                        <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Play notes and chords live!</p>
-                      </div>
+                      <JamPalette circles={jamCircles} hasPlayed={jamHasPlayed} isDarkMode={isDarkMode} />
                     )}
                   </div>
                   <EnvelopeWidget
@@ -778,6 +881,8 @@ const App = () => {
                     attack={attack}
                     release={release}
                     getNoteData={getNoteData}
+                    onUndo={handleUndo}
+                    onRedo={handleRedo}
                 />
                 
                 {activeTab === 'create' && (
@@ -800,6 +905,11 @@ const App = () => {
                         <button onClick={handleLoad} className={`px-4 py-2 rounded-lg shadow-md font-bold text-white transition duration-200 ease-in-out transform hover:scale-105 ${isDarkMode ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-indigo-500 hover:bg-indigo-600'}`}>Load</button>
                         <button onClick={handlePlayAudio} disabled={!hasPlayableContent && !isPlaying} className={`px-8 py-4 rounded-lg shadow-md font-bold text-white transition duration-200 ease-in-out transform hover:scale-105 ${isPlaying ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'} ${!hasPlayableContent && !isPlaying ? 'opacity-50 cursor-not-allowed' : ''}`}>{isPlaying ? 'Stop' : 'Play Audio'}</button>
                         <button onClick={handleExport} disabled={!hasPlayableContent} className={`px-4 py-2 rounded-lg shadow-md font-bold text-white transition duration-200 ease-in-out transform hover:scale-105 ${isDarkMode ? 'bg-sky-600 hover:bg-sky-700' : 'bg-sky-500 hover:bg-sky-600'} ${!hasPlayableContent ? 'opacity-50 cursor-not-allowed' : ''}`}>Export</button>
+                    </div>
+                    <div className={`flex items-center justify-center gap-3 mt-4 px-5 py-2 rounded-xl shadow ${isDarkMode ? 'bg-gray-800' : 'bg-white'}`}>
+                        <span className={`text-sm font-bold ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>BPM</span>
+                        <input type="range" min="40" max="240" step="1" value={bpm} onChange={e => setBpm(Number(e.target.value))} className="w-32 accent-green-500" />
+                        <span className={`text-sm font-bold w-8 text-center ${isDarkMode ? 'text-gray-100' : 'text-gray-800'}`}>{bpm}</span>
                     </div>
                   </>
                 )}
@@ -889,7 +999,7 @@ const NavMenu = ({ isOpen, onClose, onNavClick, activeTab, isDarkMode }) => {
 };
 
 // --- Other Components ---
-const SolfegeKeyboard = ({ mode = 'create', onInput, onModeClick, isParenModeActive, isBracketModeActive, shadeTintLevel, onShade, onTint, currentDoColorIndex, solfegeSteps, handleKeyClickSound, isDarkMode, volume, attack, release, getNoteData, onNoteOn, onNoteOff }) => {
+const SolfegeKeyboard = ({ mode = 'create', onInput, onModeClick, isParenModeActive, isBracketModeActive, shadeTintLevel, onShade, onTint, currentDoColorIndex, solfegeSteps, handleKeyClickSound, isDarkMode, volume, attack, release, getNoteData, onNoteOn, onNoteOff, onUndo, onRedo }) => {
   const solfegeSyllables = ['do', 're', 'mi', 'fa', 'so', 'la', 'ti'];
 
   const getSolfegeKeyVisuals = useCallback((syllable) => {
@@ -960,26 +1070,14 @@ const SolfegeKeyboard = ({ mode = 'create', onInput, onModeClick, isParenModeAct
       <div className="grid grid-cols-4 gap-2 mb-4 w-full">
         {solfegeSyllables.map(syllable => {
           const { hex, brightness } = getSolfegeKeyVisuals(syllable + (shadeTintLevel > 0 ? '+'.repeat(shadeTintLevel) : '-'.repeat(Math.abs(shadeTintLevel))));
-          const gradientStyle = getGradientStyle(attack, release, hex);
           return (
             <button
               key={syllable}
               onClick={() => { onInput(syllable); handleKeyClickSound(syllable); }}
-              className={`p-3 relative text-white font-bold rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-opacity-75 transition duration-200 ease-in-out transform hover:scale-105 overflow-hidden`}
+              className={`p-3 relative text-white font-bold rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-opacity-75 transition duration-200 ease-in-out transform hover:scale-105`}
+              style={{ backgroundColor: hex, filter: `brightness(${brightness})`, transition: 'background-color 0.4s ease, filter 0.4s ease' }}
             >
-              <div 
-                className="absolute inset-0"
-                style={{ backgroundColor: FADE_TO_GRAY_COLOR }}
-              ></div>
-              <div 
-                className="absolute inset-0" 
-                style={{ 
-                    background: gradientStyle,
-                    opacity: volume, 
-                    filter: `brightness(${brightness})` 
-                }}
-              ></div>
-              <span className="relative z-10" style={{textShadow: '1px 1px 2px rgba(0,0,0,0.7)'}}>{syllable.toUpperCase()}</span>
+              <span style={{textShadow: '1px 1px 2px rgba(0,0,0,0.7)'}}>{syllable.toUpperCase()}</span>
             </button>
           );
         })}
@@ -1135,7 +1233,7 @@ const ContextMenu = ({ x, y, onDuplicate, onDelete, onMoveLeft, onMoveRight, onC
     );
 };
 
-const SolfegeWordDisplay = React.forwardRef(({ solfegeData, currentDoColorIndex, getNoteData, onReorderSegments, onDeleteSegment, onDuplicateSegment, onMoveSegment, isDarkMode, polySynth, startAudio, stopAllAudio }, ref) => {
+const SolfegeWordDisplay = React.forwardRef(({ solfegeData, currentDoColorIndex, getNoteData, onReorderSegments, onDeleteSegment, onDuplicateSegment, onMoveSegment, isDarkMode, polySynth, startAudio, stopAllAudio, bpm }, ref) => {
   const [glowingSegmentId, setGlowingSegmentId] = useState(null);
   const [isDraggingSegmentId, setIsDraggingSegmentId] = useState(null);
   const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, lineIndex: 0, segmentIdx: 0 });
@@ -1268,7 +1366,7 @@ const SolfegeWordDisplay = React.forwardRef(({ solfegeData, currentDoColorIndex,
         }
         setGlowingSegmentId(`${lineIndex}-${segmentIdx}`);
 
-        const baseClickNoteDuration = 0.3;
+        const baseClickNoteDuration = (60 / bpm) * 0.6;
         const parsedItems = parseWordSegment(segmentToPlay);
         const audioEvents = parsedItems.map(item => {
             if (typeof item === 'object' && item.type === 'arpeggio') {
@@ -1337,7 +1435,7 @@ const SolfegeWordDisplay = React.forwardRef(({ solfegeData, currentDoColorIndex,
         
         Tone.Transport.start();
     });
-  }, [parseWordSegment, getNoteData, polySynth, startAudio, stopAllAudio]);
+  }, [parseWordSegment, getNoteData, polySynth, startAudio, stopAllAudio, bpm]);
 
   useImperativeHandle(ref, () => ({
     playSegment,
