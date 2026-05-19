@@ -307,8 +307,13 @@ const JamPalette = ({ circles, hasPlayed, isDarkMode }) => (
                     transform: 'translate(-50%, -50%)',
                     backgroundColor: circle.hex,
                     boxShadow: `0 0 28px 8px ${circle.hex}99`,
-                    opacity: circle.fading ? 0 : 0.92 * circle.volume,
-                    transition: `opacity ${circle.fadeMs / 1000}s ease-out`,
+                    opacity: circle.fading ? 0 : circle.visible ? 0.92 * circle.volume : 0,
+                    filter: `brightness(${circle.brightness})`,
+                    transition: circle.fading
+                        ? `opacity ${circle.releaseMs / 1000}s ease-out`
+                        : circle.visible
+                            ? `opacity ${circle.attackMs / 1000}s ease-in`
+                            : 'none',
                 }}
             />
         ))}
@@ -355,6 +360,7 @@ const App = () => {
   const isPlayingSequenceRef = useRef(false);
   const activeTabRef = useRef(activeTab);
   const currentDoColorIndexRef = useRef(currentDoColorIndex);
+  const activeJamNotesRef = useRef({});
   useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
   useEffect(() => { currentDoColorIndexRef.current = currentDoColorIndex; }, [currentDoColorIndex]);
   
@@ -541,16 +547,19 @@ const App = () => {
         if (step !== undefined) {
             const colorIndex = (currentDoColorIndexRef.current + step + 12) % 12;
             const hex = colorSpectrum[colorIndex].hex;
+            const { octaveOffset } = parseSyllable(syllable);
+            const brightness = 1 + (octaveOffset * 0.30);
             const id = Date.now() + Math.random();
             const x = 8 + Math.random() * 84;
             const y = 8 + Math.random() * 84;
-            const fadeMs = Math.max(800, release * 2000 + 600);
+            const attackMs = Math.max(10, attack * 1000);
+            const releaseMs = Math.max(300, release * 2000 + 200);
             setJamHasPlayed(true);
-            setJamCircles(prev => [...prev, { id, x, y, hex, volume, fading: false, fadeMs }]);
+            setJamCircles(prev => [...prev, { id, syllable, x, y, hex, brightness, volume, attackMs, releaseMs, visible: false, fading: false }]);
+            activeJamNotesRef.current[syllable] = { id, releaseMs };
             setTimeout(() => {
-                setJamCircles(prev => prev.map(c => c.id === id ? { ...c, fading: true } : c));
-                setTimeout(() => setJamCircles(prev => prev.filter(c => c.id !== id)), fadeMs);
-            }, 30);
+                setJamCircles(prev => prev.map(c => c.id === id ? { ...c, visible: true } : c));
+            }, 20);
         }
     }
   }, [getNoteData, attack, release, volume, startAudio]);
@@ -561,6 +570,14 @@ const App = () => {
     const noteData = getNoteData(syllable);
     if (noteData) {
         polySynthRef.current.triggerRelease(noteData.note);
+    }
+
+    const active = activeJamNotesRef.current[syllable];
+    if (active) {
+        delete activeJamNotesRef.current[syllable];
+        const { id, releaseMs } = active;
+        setJamCircles(prev => prev.map(c => c.id === id ? { ...c, fading: true } : c));
+        setTimeout(() => setJamCircles(prev => prev.filter(c => c.id !== id)), releaseMs);
     }
   }, [getNoteData]);
   
@@ -999,6 +1016,21 @@ const NavMenu = ({ isOpen, onClose, onNavClick, activeTab, isDarkMode }) => {
 };
 
 // --- Other Components ---
+const JamKey = ({ syllable, hex, brightness, gradientStyle, volume, onNoteOn, onNoteOff }) => (
+    <button
+        onMouseDown={() => onNoteOn(syllable)}
+        onMouseUp={() => onNoteOff(syllable)}
+        onMouseLeave={() => onNoteOff(syllable)}
+        onTouchStart={(e) => { e.preventDefault(); onNoteOn(syllable); }}
+        onTouchEnd={(e) => { e.preventDefault(); onNoteOff(syllable); }}
+        className="p-3 h-16 relative text-white font-bold rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-opacity-75 transition duration-200 ease-in-out transform hover:scale-105 overflow-hidden select-none"
+    >
+        <div className="absolute inset-0" style={{ backgroundColor: FADE_TO_GRAY_COLOR }} />
+        <div className="absolute inset-0" style={{ background: gradientStyle, opacity: volume, filter: `brightness(${brightness})` }} />
+        <span className="relative z-10" style={{ textShadow: '1px 1px 2px rgba(0,0,0,0.7)' }}>{syllable.replace(/[+-]/g, '').toUpperCase()}</span>
+    </button>
+);
+
 const SolfegeKeyboard = ({ mode = 'create', onInput, onModeClick, isParenModeActive, isBracketModeActive, shadeTintLevel, onShade, onTint, currentDoColorIndex, solfegeSteps, handleKeyClickSound, isDarkMode, volume, attack, release, getNoteData, onNoteOn, onNoteOff, onUndo, onRedo }) => {
   const solfegeSyllables = ['do', 're', 'mi', 'fa', 'so', 'la', 'ti'];
 
@@ -1027,38 +1059,28 @@ const SolfegeKeyboard = ({ mode = 'create', onInput, onModeClick, isParenModeAct
     const middleOctaveSyllables = solfegeSyllables;
     const upperOctaveSyllables = solfegeSyllables.map(s => s + '+');
 
-    const JamKey = ({ syllable }) => {
-      const { hex, brightness } = getSolfegeKeyVisuals(syllable);
-      const gradientStyle = getGradientStyle(attack, release, hex);
-      return (
-        <button
-          onMouseDown={() => onNoteOn(syllable)}
-          onMouseUp={() => onNoteOff(syllable)}
-          onMouseLeave={() => onNoteOff(syllable)}
-          onTouchStart={(e) => { e.preventDefault(); onNoteOn(syllable); }}
-          onTouchEnd={(e) => { e.preventDefault(); onNoteOff(syllable); }}
-          className={`p-3 h-16 relative text-white font-bold rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-opacity-75 transition duration-200 ease-in-out transform hover:scale-105 overflow-hidden select-none`}
-        >
-          <div className="absolute inset-0" style={{ backgroundColor: FADE_TO_GRAY_COLOR }} />
-          <div className="absolute inset-0" style={{ background: gradientStyle, opacity: volume, filter: `brightness(${brightness})` }} />
-          <span className="relative z-10" style={{ textShadow: '1px 1px 2px rgba(0,0,0,0.7)' }}>{syllable.replace(/[+-]/g, '').toUpperCase()}</span>
-        </button>
-      );
-    };
-
     return (
       <div className={`w-full max-w-lg p-4 rounded-xl shadow-lg mt-8 flex flex-col items-center gap-2 transition-colors duration-300 ${isDarkMode ? 'bg-gray-800' : 'bg-white'}`}>
         {/* Lower Octave (top row) */}
         <div className="grid grid-cols-7 gap-2 w-full">
-          {lowerOctaveSyllables.map(syllable => <JamKey key={syllable} syllable={syllable} />)}
+          {lowerOctaveSyllables.map(syllable => {
+            const { hex, brightness } = getSolfegeKeyVisuals(syllable);
+            return <JamKey key={syllable} syllable={syllable} hex={hex} brightness={brightness} gradientStyle={getGradientStyle(attack, release, hex)} volume={volume} onNoteOn={onNoteOn} onNoteOff={onNoteOff} />;
+          })}
         </div>
         {/* Middle Octave */}
         <div className="grid grid-cols-7 gap-2 w-full">
-          {middleOctaveSyllables.map(syllable => <JamKey key={syllable} syllable={syllable} />)}
+          {middleOctaveSyllables.map(syllable => {
+            const { hex, brightness } = getSolfegeKeyVisuals(syllable);
+            return <JamKey key={syllable} syllable={syllable} hex={hex} brightness={brightness} gradientStyle={getGradientStyle(attack, release, hex)} volume={volume} onNoteOn={onNoteOn} onNoteOff={onNoteOff} />;
+          })}
         </div>
         {/* Upper Octave (bottom row) */}
         <div className="grid grid-cols-7 gap-2 w-full">
-          {upperOctaveSyllables.map(syllable => <JamKey key={syllable} syllable={syllable} />)}
+          {upperOctaveSyllables.map(syllable => {
+            const { hex, brightness } = getSolfegeKeyVisuals(syllable);
+            return <JamKey key={syllable} syllable={syllable} hex={hex} brightness={brightness} gradientStyle={getGradientStyle(attack, release, hex)} volume={volume} onNoteOn={onNoteOn} onNoteOff={onNoteOff} />;
+          })}
         </div>
       </div>
     );
@@ -1070,14 +1092,16 @@ const SolfegeKeyboard = ({ mode = 'create', onInput, onModeClick, isParenModeAct
       <div className="grid grid-cols-4 gap-2 mb-4 w-full">
         {solfegeSyllables.map(syllable => {
           const { hex, brightness } = getSolfegeKeyVisuals(syllable + (shadeTintLevel > 0 ? '+'.repeat(shadeTintLevel) : '-'.repeat(Math.abs(shadeTintLevel))));
+          const gradientStyle = getGradientStyle(attack, release, hex);
           return (
             <button
               key={syllable}
               onClick={() => { onInput(syllable); handleKeyClickSound(syllable); }}
-              className={`p-3 relative text-white font-bold rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-opacity-75 transition duration-200 ease-in-out transform hover:scale-105`}
-              style={{ backgroundColor: hex, filter: `brightness(${brightness})`, transition: 'background-color 0.4s ease, filter 0.4s ease' }}
+              className={`p-3 relative text-white font-bold rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-opacity-75 transition duration-200 ease-in-out transform hover:scale-105 overflow-hidden`}
             >
-              <span style={{textShadow: '1px 1px 2px rgba(0,0,0,0.7)'}}>{syllable.toUpperCase()}</span>
+              <div className="absolute inset-0" style={{ backgroundColor: FADE_TO_GRAY_COLOR }}></div>
+              <div className="absolute inset-0" style={{ background: gradientStyle, opacity: volume, filter: `brightness(${brightness})` }}></div>
+              <span className="relative z-10" style={{textShadow: '1px 1px 2px rgba(0,0,0,0.7)'}}>{syllable.toUpperCase()}</span>
             </button>
           );
         })}
