@@ -1261,7 +1261,11 @@ const SolfegeWordDisplay = React.forwardRef(({ solfegeData, currentDoColorIndex,
             return;
         }
         
-        stopAllAudio();
+        if (polySynth) polySynth.releaseAll();
+        if (Tone.Transport.state === 'started') {
+            Tone.Transport.stop();
+            Tone.Transport.cancel();
+        }
         setGlowingSegmentId(`${lineIndex}-${segmentIdx}`);
 
         const baseClickNoteDuration = 0.3;
